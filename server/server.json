@@ -1,0 +1,23 @@
+{
+  "bin": "C:\\llm\\bin\\current\\llama-server.exe",
+  "model": "C:\\llm\\models\\Qwen3.8-27B-UD-Q6_K.gguf",
+  "mmproj": "C:\\llm\\models\\mmproj-F16.gguf",
+  "mmprojOffload": false,
+  "alias": "qwen3.8-27b",
+  "port": 8080,
+  "ctx": 131072,
+  "slots": 2,
+  "kvType": "q8_0",
+  "apiKeyFile": "C:\\llm\\secrets\\api-key.txt",
+  "mtp": {
+    "enabled": true,
+    "model": "C:\\llm\\models\\mtp-Qwen3.8-27B-Q4_0.gguf",
+    "nMax": 3
+  },
+  "mcp": {
+    "enabled": true,
+    "node": "C:\\Program Files\\nodejs\\node.exe",
+    "web": "C:\\llm\\mcp\\web.mjs",
+    "timeoutMs": 45000
+  }
+}

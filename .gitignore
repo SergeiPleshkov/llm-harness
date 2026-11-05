@@ -1,0 +1,5 @@
+# system details from the discovery run, not for the repo
+llm-report.txt
+node_modules/
+*.log
+.DS_Store

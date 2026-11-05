@@ -1,0 +1,12 @@
+{
+  "name": "llm-harness",
+  "private": true,
+  "description": "Opus plans and reviews, local Qwen3.8-27B (llama.cpp) executes",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"harness/test/*.test.mjs\"",
+    "status": "node harness/lib/backend.mjs --fresh",
+    "install-harness": "node install.mjs",
+    "uninstall-harness": "node install.mjs --uninstall"
+  }
+}
