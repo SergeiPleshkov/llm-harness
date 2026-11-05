@@ -19,32 +19,29 @@ It keeps Claude Code on the subscription and hands work to a separate executor (
 - **`ask`**: one-shot questions to the local model from any terminal, falls back to Claude Haiku.
 - **Web chat with web search**: llama-server's built-in web UI plus a small MCP server with `web_search` (DuckDuckGo,
   no key) and `web_fetch` (refuses local and private addresses).
-- **Editors**: the Claude Code extension for VS Code and Cursor gets all of the above; Continue gets a direct Qwen chat.
+- **Editors**: the Claude Code extension for VS Code and Cursor gets the hooks, skills and delegation (the status line
+  is shown by the CLI); Continue gets a direct Qwen chat.
 - **Two desktop shortcuts**: start the model for the laptop, or stop it and free the GPU for games.
 
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
+  Claude[("Claude (subscription)<br/>plans, decides, reviews")]
   subgraph Laptop["Laptop (macOS)"]
-    CCL["Claude Code<br/>CLI / app / VS Code / Cursor"]
-    QCL["Qwen Code<br/>(qexec executor)"]
-    ASKL["ask, Continue,<br/>browser"]
+    CCL["Claude Code"] -- qexec --> QCL["Qwen Code"]
+    ASK["ask, Continue, browser"]
   end
   subgraph Desktop["Desktop (Windows, NVIDIA GPU)"]
-    CCD["Claude Code"]
-    QCD["Qwen Code"]
-    LS["llama-server<br/>Qwen3.8-27B + MTP<br/>web UI + MCP web tools"]
+    CCD["Claude Code"] -- qexec --> QCD["Qwen Code"]
+    LS["llama-server: Qwen3.8-27B<br/>web UI + web search tools"]
+    QCD --> LS
   end
-  Claude[("Claude<br/>subscription")]
-  CCL -- plans, reviews --> Claude
-  CCD -- plans, reviews --> Claude
-  CCL -- qexec --> QCL
-  CCD -- qexec --> QCD
-  QCL -- "OpenAI API over Tailscale" --> LS
-  QCD -- "127.0.0.1" --> LS
+  CCL --> Claude
+  CCD --> Claude
+  QCL -- Tailscale --> LS
   CCL -. shunt .-> LS
-  ASKL -- Tailscale --> LS
+  ASK -- Tailscale --> LS
 ```
 
 Executors and `shunt` run where the code is (laptop or desktop); only model requests cross the network. The server
@@ -77,7 +74,8 @@ With less VRAM, pick a smaller quant or context in [server/server.json](server/s
 | `install.mjs` | installs hooks, status line and skills into `~/.claude` (`--uninstall` reverts) |
 | `tools/llm-discovery.ps1` | read-only survey of a Windows machine before you start |
 
-Everything is plain Node (20+, no dependencies) or Windows PowerShell 5.1. `npm test` runs the test suite.
+Everything is plain Node (20+, no dependencies; 22+ to run the tests) or Windows PowerShell 5.1. `npm test` runs the
+test suite.
 
 ## Setup
 
@@ -87,7 +85,8 @@ Everything is plain Node (20+, no dependencies) or Windows PowerShell 5.1. `npm 
 2. Download a CUDA build of llama.cpp from its [releases](https://github.com/ggml-org/llama.cpp/releases)
    (`llama-<build>-bin-win-cuda-<ver>-x64.zip` and the matching `cudart-…` zip) and unpack both into
    `C:\llm\bin\current`.
-3. Download the model files listed in [server/server.json](server/server.json) into `C:\llm\models`.
+3. Download the model files listed in [server/server.json](server/server.json) into `C:\llm\models` (the MTP draft is
+   in the `MTP/` folder of the model repository).
 4. Create the API key, readable only by you (PowerShell):
    ```powershell
    New-Item -ItemType Directory -Force C:\llm\secrets | Out-Null
@@ -101,16 +100,20 @@ Everything is plain Node (20+, no dependencies) or Windows PowerShell 5.1. `npm 
    ```
    If Windows asks whether to allow `llama-server.exe`, do not press Cancel: that creates block rules
    (`llmctl` warns when it finds them).
-6. Deploy and create the shortcuts (`-Root` changes the install folder; paths in `server.json` must match):
+6. Deploy and create the shortcuts:
    ```powershell
    powershell -ExecutionPolicy Bypass -File server\install-shortcuts.ps1
    ```
+   `-Root D:\llm` installs elsewhere; then change the paths in `server.json` too, and after step 2 the `keyFile` in
+   `~/.llm-harness/config.json`.
 7. Start the model with the **LLM - start** shortcut (it also brings Tailscale up and checks the firewall); free the
-   GPU with **LLM - stop (free GPU)**. From a terminal: `C:\llm\llmctl.ps1 up|down|status|logs`.
+   GPU with **LLM - stop (free GPU)**. From a terminal:
+   `powershell -ExecutionPolicy Bypass -File C:\llm\llmctl.ps1 up|down|status|logs`.
 
 ### 2. Claude Code on the desktop
 
-Needs Node 22+ and Claude Code signed in.
+Needs Node 22+, git and Claude Code signed in. `install.mjs` edits `~/.claude/settings.json` and saves a timestamped
+backup next to it first.
 
 ```bash
 npm i -g @qwen-code/qwen-code@0.26.4
@@ -119,6 +122,11 @@ node harness/lib/backend.mjs --fresh   # expect: qwen3.8-27b @ http://127.0.0.1:
 ```
 
 Start a new Claude Code session: the status line shows `● Qwen`.
+
+Optional on the desktop: `ask` reads `~/.llm-harness/client.json`
+(`{"url": "http://127.0.0.1:8080", "model": "qwen3.8-27b", "keyFile": "C:\\llm\\secrets\\api-key.txt"}`) and runs as
+`node client/ask.mjs "question"`; Continue is set up with
+`node client/install-continue.mjs --url http://127.0.0.1:8080 --key-file C:\llm\secrets\api-key.txt`.
 
 ### 3. Laptop (macOS)
 
@@ -170,13 +178,18 @@ Update later with `git pull`: hooks and skills point into the repo.
 ## Security
 
 - No secrets in the repo. The key lives in a file readable only by you (desktop) or in the Keychain (laptop) and
-  reaches executors through environment variables, never the command line.
-- llama-server binds to 127.0.0.1 and the Tailscale address only; the firewall rule is limited to the Tailscale
-  interface and range; every API call needs the key.
+  reaches executors through environment variables, never the command line. Copies you create on purpose: Continue
+  keeps it in `~/.continue/.env` (mode 600, or in `config.yaml` with `--inline-key`), and the web UI keeps it in
+  the browser where you entered it.
+- llama-server binds to 127.0.0.1 and the Tailscale address only, and the firewall rule is limited to the Tailscale
+  interface and range. Model and tool calls need the key; `/health` and the web UI page itself are open to anyone on
+  your tailnet, so share the tailnet only with devices you trust.
 - `web_fetch` refuses localhost, private, link-local and Tailscale addresses, also after redirects and at connect
   time, so the model cannot reach services on your machines through it.
-- Executors run with `--approval-mode yolo` inside a throwaway git worktree; nothing reaches your branch until you
-  merge it. Review diffs as you would a colleague's.
+- **The executors are not sandboxed.** Qwen Code runs with `--approval-mode yolo` and the Sonnet fallback may use
+  Bash, both as your user: they can run any command and touch files outside the repo. The separate git worktree only
+  keeps their changes off your branch until you merge. Delegate only plans you would let a colleague run on your
+  machine, and review the diff before merging.
 
 ## Things I learned the hard way
 
